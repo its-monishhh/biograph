@@ -1,0 +1,6 @@
+# Optional heavy ML stack (~1-2 GB installed).
+# Needed ONLY for: the trained GNN checkpoint (torch) and X-ray analysis (torchxrayvision).
+# Without it the API still runs; predictions fall back to the hash scorer and /amie/* reports unavailable.
+-r requirements.txt
+torch
+torchxrayvision
