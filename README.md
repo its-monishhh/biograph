@@ -4,512 +4,331 @@
 
 ### Neurosymbolic Drug Repurposing Platform
 
-*Combining Graph Neural Networks with Symbolic Reasoning for Explainable Drug Discovery*
+*Graph neural network scores + symbolic reasoning over a biomedical knowledge graph, with explanations you can read.*
 
-![Hero Banner](public/Recording 2025-12-13 095515.gif)
+![Hero Banner](public/Recording%202025-12-13%20095515.gif)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://reactjs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688.svg)](https://fastapi.tiangolo.com/)
 [![Neo4j](https://img.shields.io/badge/Neo4j-Graph%20DB-008CC1.svg)](https://neo4j.com/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-GNN-EE4C2C.svg)](https://pytorch.org/)
 
+**Live demo:** https://biograph-seven.vercel.app *(free hosting: the first load can take about a minute while the server wakes up)*
+
 </div>
+
+> **Research prototype.** Scores indicate pattern similarity in a knowledge graph, not clinical efficacy. Nothing here is medical advice or a validated treatment recommendation.
 
 ---
 
-## 📸 Model graphs
+## Contents
 
-<div align="center">
-<table>
-<tr>
-<td><img src="public/chart.png" alt="Dashboard Overview" width="400"/></td>
-<td><img src="public/chart (1).png" alt="Prediction Analysis" width="400"/></td>
-</tr>
-<tr>
-<td align="center"><b>Dashboard Overview</b></td>
-<td align="center"><b>Prediction Analysis</b></td>
-</tr>
-<tr>
-<td><img src="public/chart (2).png" alt="Knowledge Graph" width="400"/></td>
-<td><img src="public/chart (3).png" alt="Drug Comparison" width="400"/></td>
-</tr>
-<tr>
-<td align="center"><b>Knowledge Graph Explorer</b></td>
-<td align="center"><b>Drug Comparison View</b></td>
-</tr>
-</table>
-</div>
-
-### Model Performance & Competitive Analysis
-
-<div align="center">
-<table>
-<tr>
-<td><img src="public/validation_auc_chart.png" alt="Validation AUC" width="400"/></td>
-<td><img src="public/biomedical_data_chart.png" alt="Biomedical Data Coverage" width="400"/></td>
-</tr>
-<tr>
-<td align="center"><b>Model Validation AUC</b></td>
-<td align="center"><b>Biomedical Data Coverage</b></td>
-</tr>
-<tr>
-<td><img src="public/Why_Your_Model_Wins__Direct_Competitor_Comparison.png" alt="Competitor Comparison" width="400"/></td>
-<td><img src="public/Complete_Comparison__Why_Your_Model_Wins_Across_All_Dimensions.png" alt="Complete Comparison" width="400"/></td>
-</tr>
-<tr>
-<td align="center"><b>Direct Competitor Comparison</b></td>
-<td align="center"><b>Multi-Dimensional Analysis</b></td>
-</tr>
-</table>
-
-<img src="public/Complete_Picture__Why_Your_Model_Dominates_the_Market.png" alt="Market Dominance" width="700"/>
-<p><b>Complete Market Position Analysis</b></p>
-</div>
+[Overview](#-overview) · [Features](#-features) · [Architecture](#-architecture) · [Data](#-data-hetionet-in-neo4j) · [How predictions work](#-how-predictions-work) · [The GNN](#-the-gnn-model) · [Tech stack](#-tech-stack) · [Getting started](#-getting-started) · [Project structure](#-project-structure) · [API reference](#-api-reference) · [Training](#-training-the-model) · [Deployment](#-deployment) · [Testing](#-testing) · [Troubleshooting](#-troubleshooting) · [Known limitations](#-known-limitations)
 
 ---
 
 ## 🎯 Overview
 
-**NeuroGraph BioAI** is a cutting-edge neurosymbolic drug repurposing platform that combines the power of deep learning with symbolic reasoning to discover new therapeutic uses for existing drugs. Our platform bridges the gap between black-box AI predictions and explainable medical insights.
+Drug repurposing looks for new uses of drugs that are already approved, which is faster and cheaper than discovering a new drug. NeuroGraph BioAI stores biomedical knowledge (drugs, diseases, genes, pathways) as a graph, scores drug-disease pairs with a graph neural network, and then looks for **paths in the graph that explain the score**, for example *"this drug binds a gene that is associated with the disease"*.
 
-### Why NeuroGraph BioAI?
-
-| Feature | Traditional ML | NeuroGraph BioAI |
-|---------|---------------|------------------|
-| **Predictions** | Black-box scores | Explainable reasoning chains |
-| **Data Integration** | Single source | Multi-relational knowledge graph |
-| **Validation** | Statistical only | Symbolic + Neural validation |
-| **Interpretability** | Low | High (mechanism of action paths) |
-
----
-
-## 🏗️ System Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        FRONTEND (React + TypeScript)            │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────────┐    │
-│  │Dashboard │ │Predictor │ │Knowledge │ │Drug Comparison   │    │
-│  │          │ │Analysis  │ │Explorer  │ │View              │    │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
-                              │ REST API
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      BACKEND (FastAPI + Python)                 │
-│  ┌────────────────────────────────────────────────────────┐     │
-│  │              NeuroSymbolic Service                     │     │
-│  │  ┌─────────────────────┐  ┌─────────────────────────┐  │     │
-│  │  │   GNN Predictor     │  │  Symbolic Reasoner      │  │     │
-│  │  │   (PyTorch Model)   │  │  (Rule-based Logic)     │  │     │
-│  │  └─────────────────────┘  └─────────────────────────┘  │     │
-│  └────────────────────────────────────────────────────────┘     │
-└─────────────────────────────────────────────────────────────────┘
-                              │ Cypher Queries
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    NEO4J GRAPH DATABASE                         │
-│              (Hetionet Knowledge Graph)                         │
-│   47K+ Nodes | 2.2M+ Relationships | 11 Node Types | 24 Edges   │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 🧬 The Custom GNN Model
-
-Our **Drug Repurposing GNN** is a state-of-the-art Graph Neural Network specifically designed for biomedical knowledge graphs.
-
-### Model Architecture
-
-```python
-DrugRepurposingModel
-├── DrugRepurposingGNN (Encoder)
-│   ├── Node Embeddings (128-dim learnable vectors)
-│   ├── Type Embeddings (Drug, Disease, Gene, Anatomy, etc.)
-│   ├── GraphConvLayer × 3 (Multi-relational message passing)
-│   │   └── Relation-specific weight matrices (10 edge types)
-│   ├── MultiHeadAttention (4 heads, layer combination)
-│   └── Output Projection (LayerNorm + ReLU + Dropout)
-│
-└── DrugDiseaseScoringHead (Predictor)
-    ├── Bilinear Interaction
-    ├── Concatenation Features
-    ├── Element-wise Product
-    ├── Cosine Similarity
-    └── MLP Classifier → Sigmoid Score
-```
-
-### Key Model Components
-
-#### 1. Multi-Relational Graph Convolution
-```python
-# Our custom GraphConvLayer handles different edge types
-class GraphConvLayer(nn.Module):
-    - 10 relation-specific weight matrices
-    - Layer normalization for stability
-    - Self-loop transformation for node identity
-```
-
-#### 2. Multi-Head Attention
-```python
-# Combines information from multiple GNN layers
-class MultiHeadAttention(nn.Module):
-    - 4 attention heads
-    - Learns which layer depths are most important
-    - Query-Key-Value projections
-```
-
-#### 3. Drug-Disease Scoring Head
-```python
-# Multiple interaction signals for robust scoring
-class DrugDiseaseScoringHead(nn.Module):
-    - Concatenation: [drug_emb; disease_emb]
-    - Element-wise: drug_emb ⊙ disease_emb
-    - Bilinear: drug_emb^T W disease_emb
-    - Cosine: cos(drug_emb, disease_emb)
-```
-
-### Model Specifications
-
-| Parameter | Value |
-|-----------|-------|
-| Embedding Dimension | 128 |
-| Hidden Dimension | 256 |
-| Number of GNN Layers | 3 |
-| Attention Heads | 4 |
-| Dropout Rate | 0.2 |
-| Number of Relations | 10 |
-| Trainable Parameters | ~2.5M |
-
-### Training Details
-
-- **Optimizer**: Adam with learning rate scheduling
-- **Loss Function**: Binary Cross-Entropy with positive class weighting
-- **Validation**: AUC-ROC, AUC-PR, Hit@K metrics
-- **Checkpointing**: Best model saved based on validation AUC
-
----
-
-## 🗄️ Neo4j Knowledge Graph
-
-### Database: Hetionet
-
-We use **Hetionet**, a comprehensive biomedical knowledge graph that integrates data from 29 public resources.
-
-### Node Types (11 types)
-
-| Node Type | Count | Description |
-|-----------|-------|-------------|
-| **Compound** | 1,552 | Drugs and small molecules |
-| **Disease** | 137 | Medical conditions |
-| **Gene** | 20,945 | Human genes |
-| **Anatomy** | 402 | Anatomical structures |
-| **Pathway** | 1,822 | Biological pathways |
-| **PharmacologicClass** | 345 | Drug classes |
-| **Symptom** | 438 | Clinical symptoms |
-| **Side Effect** | 5,734 | Adverse drug reactions |
-| **Biological Process** | 11,381 | GO biological processes |
-| **Cellular Component** | 1,391 | GO cellular components |
-| **Molecular Function** | 2,884 | GO molecular functions |
-
-### Relationship Types (10 core edge types used in model)
-
-| Relationship | Source | Target | Description | Example |
-|-------------|--------|--------|-------------|---------|
-| **TREATS** | Drug | Disease | Drug treats disease | Aspirin treats Headache |
-| **PALLIATES** | Drug | Disease | Drug alleviates symptoms | Morphine palliates pain |
-| **BINDS** | Drug | Gene | Drug binds to protein/gene | Metformin binds AMPK |
-| **TARGETS** | Drug | Gene | Drug targets gene product | Imatinib targets BCR-ABL |
-| **UPREGULATES** | Drug | Gene | Drug increases expression | Activator increases mRNA |
-| **DOWNREGULATES** | Drug | Gene | Drug decreases expression | Inhibitor reduces protein |
-| **ASSOCIATES** | Gene | Disease | Gene associated with disease | BRCA1 → Breast Cancer |
-| **INTERACTS** | Gene | Gene | Protein-protein interaction | p53 interacts MDM2 |
-| **RESEMBLES** | Drug/Disease | Drug/Disease | Structural/phenotypic similarity | Similar compounds |
-| **LOCALIZES** | Disease | Anatomy | Disease affects body part | Diabetes → Pancreas |
-
-### Sample Cypher Queries
-
-```cypher
--- Find drug repurposing candidates
-MATCH (d:Compound)-[:BINDS]->(g:Gene)-[:ASSOCIATES]->(dis:Disease)
-WHERE NOT (d)-[:TREATS]->(dis)
-RETURN d.name, dis.name, g.name
-
--- Find similar drugs via gene targets
-MATCH (d1:Compound)-[:TARGETS]->(g:Gene)<-[:TARGETS]-(d2:Compound)
-WHERE d1 <> d2
-RETURN d1.name, d2.name, count(g) as shared_targets
-ORDER BY shared_targets DESC
-```
-
----
-
-## 🔮 How Predictions Work
-
-### The Neurosymbolic Pipeline
-
-```
-1. USER INPUT                    2. CANDIDATE SELECTION
-   Disease: "Parkinson's"    →      Query Neo4j for drugs
-                                    not treating this disease
-
-3. NEURAL SCORING                4. SYMBOLIC VALIDATION
-   GNN encodes drug-disease  →      Apply logical rules:
-   pair into embeddings             - Mechanism of Action
-   Score = f(drug, disease)         - Gene Regulation
-                                    - Similar Drug Strategy
-                                    - Known Treatment Patterns
-
-5. EXPLANATION GENERATION        6. RANKED RESULTS
-   Extract reasoning paths   →      Return top candidates
-   from knowledge graph             with confidence + explanations
-```
-
-### Symbolic Reasoning Rules
-
-| Rule | Description | Query Pattern |
-|------|-------------|---------------|
-| **Mechanism of Action** | Drug binds gene linked to disease | `(Drug)-[:BINDS]->(Gene)-[]->(Disease)` |
-| **Gene Regulation** | Drug up/downregulates disease gene | `(Drug)-[:UP/DOWNREGULATES]->(Gene)-[:ASSOCIATES]->(Disease)` |
-| **Similar Compound** | Similar drug treats target disease | `(Drug)-[:RESEMBLES]->(Drug2)-[:TREATS]->(Disease)` |
-| **Similar Disease** | Drug treats similar disease | `(Drug)-[:TREATS]->(Disease2)-[:RESEMBLES]->(Disease)` |
-| **Pharmacologic Class** | Drug belongs to therapeutic class | `(Drug)-[:INCLUDES]->(PharmClass)` |
-
-### Confidence Score Calculation
-
-```
-Final_Score = Neural_Score + Symbolic_Boost
-
-Where:
-- Neural_Score = GNN prediction (0-1)
-- Symbolic_Boost = +0.2 if explanation path exists
-- Final_Score = min(Neural_Score + Symbolic_Boost, 1.0)
-```
+| | Typical black-box model | NeuroGraph BioAI |
+|---|---|---|
+| Output | A score | A score plus the graph paths behind it |
+| Data | Flat features | Multi-relational knowledge graph |
+| Checking a result | Trust the number | Inspect the reasoning chain and subgraph |
 
 ---
 
 ## ✨ Features
 
-### 🔬 Prediction Engine
-Analyze diseases and discover potential drug repurposing candidates with explainable AI predictions.
-
-### 🕸️ Knowledge Explorer
-Interactive D3.js-powered knowledge graph visualization. Explore drug-gene-disease relationships visually.
-
-### 📊 Dashboard
-Real-time performance metrics, candidate tracking, and system statistics.
-
-### 🔄 Drug Comparison
-Side-by-side analysis of multiple compounds. Compare mechanisms, targets, and predicted efficacy.
-
-### 📥 Export Capabilities
-Generate PDF and JSON reports of predictions for further analysis or publication.
-
-### 📜 Search History
-Track and revisit previous analyses. Never lose your research progress.
+| Screen | What it does |
+|---|---|
+| **Dashboard** | Graph statistics and system status |
+| **Predictor** | Pick a disease, get ranked drug candidates with explanations (`/predict`) |
+| **Prediction Analysis** | Type any drug or disease name. The app resolves it to a real graph node and returns a score, reasoning chain and subgraph built from Neo4j (`/analyze`) |
+| **Knowledge Explorer** | Interactive D3 graph of drug, gene and disease relationships |
+| **Drug Comparison** | Side-by-side analysis of two drugs |
+| **AMIE (optional)** | Chest X-ray findings from a pretrained model, mapped to diseases and drugs in the graph. Demo only, needs the ML install |
+| **Export / History** | PDF and JSON reports, and a history of previous searches |
 
 ---
 
-## 🛠️ Tech Stack
+## 🏗️ Architecture
 
-### Frontend
-| Technology | Purpose |
-|------------|---------|
-| **React 19** | UI Framework |
-| **TypeScript** | Type Safety |
-| **Vite** | Build Tool & Dev Server |
-| **D3.js** | Knowledge Graph Visualization |
-| **Recharts** | Statistical Charts |
-| **Lucide Icons** | Icon Library |
-| **Tailwind CSS** | Styling |
+```
+┌──────────────────────────────────────────────────────────────┐
+│  FRONTEND  React 19 + TypeScript + Vite   (Vercel)           │
+│  Dashboard · Predictor · Analysis · Explorer · Comparison    │
+└──────────────────────────────────────────────────────────────┘
+                     │  HTTPS + JSON  (VITE_API_URL)
+                     ▼
+┌──────────────────────────────────────────────────────────────┐
+│  BACKEND  FastAPI + Uvicorn   (Render, Docker)               │
+│   Graph API        Neurosymbolic service      Analysis       │
+│   (Cypher+cache)   (GNN score + rules)        (/analyze)     │
+└──────────────────────────────────────────────────────────────┘
+                     │  Cypher over Bolt (neo4j+s://)
+                     ▼
+┌──────────────────────────────────────────────────────────────┐
+│  NEO4J AuraDB   Hetionet subset                              │
+└──────────────────────────────────────────────────────────────┘
+```
 
-### Backend
-| Technology | Purpose |
-|------------|---------|
-| **FastAPI** | REST API Framework |
-| **Python 3.10+** | Backend Language |
-| **PyTorch** | Deep Learning Framework |
-| **Neo4j Driver** | Graph Database Connection |
-| **Pydantic** | Data Validation |
-| **Uvicorn** | ASGI Server |
-
-### Database
-| Technology | Purpose |
-|------------|---------|
-| **Neo4j AuraDB** | Cloud Graph Database |
-| **Cypher** | Graph Query Language |
-| **Hetionet** | Biomedical Knowledge Graph |
-
-### Model & ML
-| Technology | Purpose |
-|------------|---------|
-| **Custom GNN** | Graph Neural Network (PyTorch) |
-| **Multi-Head Attention** | Layer aggregation |
-| **Bilinear Scoring** | Drug-disease prediction |
-| **Symbolic Reasoner** | Explainable AI rules |
+Secrets (database credentials) live only in the backend's environment variables. The browser only knows the backend URL.
 
 ---
 
-## 🚀 Getting Started
+## 🗄️ Data: Hetionet in Neo4j
 
-### Prerequisites
+The graph comes from [**Hetionet**](https://het.io/), a public biomedical knowledge graph that integrates 29 resources. The **full** dataset has 47,031 nodes (11 types) and about 2.25 million relationships (24 types). Neo4j AuraDB Free has a relationship cap, so the importer loads a **trimmed subset** with only the types this app queries:
 
-- **Node.js** 18+ and npm
-- **Python** 3.10+
-- **Neo4j** database (or use our hosted AuraDB)
+| Node label | Count | Description |
+|---|---|---|
+| Compound | 1,552 | Drugs and small molecules |
+| Disease | 137 | Medical conditions |
+| Gene | 20,945 | Human genes |
+| Pathway | 1,822 | Biological pathways |
+| Anatomy | 402 | Anatomical structures |
+| PharmacologicClass | 345 | Drug classes |
+| Symptom | 438 | Clinical symptoms |
+| **Total** | **25,641** | about 164,600 relationships in default ("lite") mode |
 
-### Installation
+| Relationship | Direction | Meaning |
+|---|---|---|
+| `TREATS` | Compound → Disease | Known treatment |
+| `PALLIATES` | Compound → Disease | Eases symptoms |
+| `BINDS` | Compound → Gene | Drug binds the gene product |
+| `UPREGULATES` / `DOWNREGULATES` | Compound → Gene | Changes expression |
+| `ASSOCIATES` | Gene → Disease | Gene linked to the disease (reversed from Hetionet's native direction on import) |
+| `RESEMBLES` | Compound↔Compound, Disease↔Disease | Similarity |
+| `LOCALIZES` | Disease → Anatomy | Where the disease acts |
+| `PRESENTS` | Disease → Symptom | Disease symptoms |
+| `INCLUDES` | PharmacologicClass → Compound | Class membership |
+| `PARTICIPATES` | Gene → Pathway | Pathway membership |
+| `INTERACTS` | Gene ↔ Gene | Only with `--full` (about 147k extra relationships) |
 
-#### 1. Clone the Repository
-```bash
-git clone https://github.com/yourusername/neurograph-bioai.git
-cd neurograph-bioai
+Nodes carry two properties: `id` (for example `DOID:10652`, `DB00945`) and `name`.
+
+```cypher
+// Drugs that bind a gene linked to a disease but are not known treatments
+MATCH (d:Compound)-[:BINDS]->(g:Gene)-[:ASSOCIATES]->(dis:Disease {id: $disease_id})
+WHERE NOT (d)-[:TREATS]->(dis)
+RETURN d.name, g.name
 ```
 
-#### 2. Frontend Setup
-```bash
-npm install
+---
+
+## 🔮 How predictions work
+
+Two entry points share the same graph:
+
+**`/predict?disease_id=…` (Predictor tab)**
+1. Pick candidate drugs that do not already treat the disease.
+2. Score each (drug, disease) pair with the GNN.
+3. For candidates with a positive score, run the symbolic rules to find explanation paths.
+4. Add a boost if an explanation exists, then sort and return the top 10.
+
+**`/analyze?q=…&entity_type=drug|disease|auto` (Analysis, Explorer, Comparison)**
+1. Resolve the typed name to a real Compound or Disease node (case-insensitive match).
+2. Find partners linked through shared genes (`drug → gene → disease`), excluding known treatments.
+3. Score them with the GNN if a trained model is loaded; otherwise with a transparent **graph-evidence score** `n / (n + 5)`, where `n` is the number of shared genes (the UI labels it "Graph evidence").
+4. For the top pair, query evidence specific to that pair: shared genes, similar compounds, similar diseases, same pharmacologic class.
+5. Build the explanation text, reasoning chain and a small subgraph from those real paths.
+
+If a name is not in the graph, the API says so instead of guessing.
+
+### Symbolic rules
+
+| Rule | Pattern |
+|---|---|
+| Mechanism of Action | `(Drug)-[:BINDS]->(Gene)-[]-(Disease)` |
+| Gene Regulation | `(Drug)-[:UPREGULATES\|DOWNREGULATES]->(Gene)-[:ASSOCIATES]->(Disease)` |
+| Similar Compound | `(Drug)-[:RESEMBLES]-(Drug2)-[:TREATS]->(Disease)` |
+| Similar Disease | `(Drug)-[:TREATS]->(Disease2)-[:RESEMBLES]-(Disease)` |
+| Pharmacologic Class | `(PharmClass)-[:INCLUDES]->(Drug)` |
+
+### Scoring
+
+```
+Final_Score = min(Neural_Score + 0.2, 1.0)   if an explanation path exists
+Final_Score = Neural_Score                    otherwise
 ```
 
-#### 3. Backend Setup
+---
+
+## 🧬 The GNN model
+
+A custom PyTorch model in `backend/models/architecture.py`:
+
+```
+DrugRepurposingModel
+├── Encoder
+│   ├── Node embeddings (128-dim, learnable) + node-type embeddings
+│   ├── 3 × GraphConvLayer: one weight matrix per relation type (10 types),
+│   │     self-loop transform, layer norm
+│   └── Multi-head attention (4 heads) over the 3 layer outputs
+└── Scoring head
+    └── concatenation + element-wise product + bilinear + cosine → MLP → sigmoid
+```
+
+| Setting | Value |
+|---|---|
+| Embedding / hidden dimension | 128 / 256 |
+| GNN layers / attention heads | 3 / 4 |
+| Relation types | 10 |
+| Dropout | 0.2 |
+
+**Training setup** (`backend/models/train.py`)
+- Positive pairs: known `TREATS` and `PALLIATES` links (1,145 pairs in the original run).
+- Negative pairs: random drug-disease pairs not known to be positive, 2× the number of positives.
+- Split: stratified random 80/20 with seed 42.
+- Loss: binary cross-entropy with label smoothing. Optimizer with weight decay and cosine-annealing warm restarts.
+- Metrics logged: ROC-AUC, average precision, accuracy.
+
+**Result:** best validation ROC-AUC **0.8959** at epoch 14 of 29, after which validation loss rises while training loss keeps falling (mild overfitting).
+
+<div align="center">
+<img src="public/chart.png" alt="Training curves over 29 epochs" width="720"/>
+<p><i>Training curves from <code>backend/checkpoints/training_history.json</code></i></p>
+</div>
+
+> The metric is a random-split validation score with random negatives, so it shows the model learned signal. It is not evidence of real predictive power on new treatments. See [Known limitations](#-known-limitations).
+
+---
+
+## 🛠️ Tech stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 19, TypeScript, Vite, D3.js, Recharts, Tailwind CSS, Lucide icons |
+| Backend | FastAPI, Uvicorn, Pydantic, Neo4j Python driver |
+| ML (optional install) | PyTorch, scikit-learn, torchxrayvision (AMIE) |
+| Database | Neo4j AuraDB, Cypher |
+| Data | Hetionet |
+| Hosting | Vercel (frontend), Render (backend, Docker), Neo4j Aura (database) |
+
+---
+
+## 🚀 Getting started
+
+**Prerequisites:** Node.js 18+, Python 3.10+, and a Neo4j database. The free [AuraDB](https://console.neo4j.io) tier is enough.
+
+### 1. Get the code
 ```bash
-cd backend
+git clone https://github.com/<your-username>/<your-repo>.git
+cd <your-repo>
+```
+
+### 2. Create a Neo4j database
+In the Aura console, create an **AuraDB Free** instance and **download the credentials file when it is shown** (the password appears only once). Wait until the instance shows *Running*.
+
+### 3. Configure environment
+Copy `.env.example` to `.env` in the repo root (never commit it) and paste the values from the credentials file:
+
+```bash
+cp .env.example .env          # Windows: copy .env.example .env
+```
+
+| Variable | Description |
+|---|---|
+| `NEO4J_URI` | Starts with `neo4j+s://`, from the credentials file |
+| `NEO4J_USERNAME` | From the credentials file (on newer Aura instances this is the instance ID, not `neo4j`) |
+| `NEO4J_PASSWORD` | From the credentials file |
+| `NEO4J_DATABASE` | Optional, include it if the credentials file has it |
+| `CORS_ORIGINS` | Comma-separated frontend origins allowed to call the API. Default: `http://localhost:3000` |
+| `VITE_API_URL` | Frontend only, set at build time. Default: `http://127.0.0.1:8000` |
+
+### 4. Install and load the data (once)
+```bash
 python -m venv .venv
-.venv\Scripts\activate  # Windows
-# source .venv/bin/activate  # macOS/Linux
-pip install -r backend/requirements.txt        # core API
-# pip install -r backend/requirements-ml.txt   # + torch / X-ray analysis (large)
+source .venv/bin/activate            # Windows PowerShell: .venv\Scripts\Activate.ps1
+pip install -r backend/requirements.txt
+
+python -m backend.import_hetionet    # about 25.6k nodes / 164.6k relationships, fits Aura Free
 ```
+Useful flags: `--wipe` (replace existing data) and `--full` (also load gene-gene interactions, needs about 330k relationship capacity).
 
-#### 4. Environment Configuration
-Copy `.env.example` to `.env` in the repo root and fill it in (never commit it):
-```env
-NEO4J_URI=neo4j+s://your-database.neo4j.io
-NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=your-password
-```
-
-### Running the Application
-
-#### Load the data (once, into a fresh Neo4j database)
+### 5. Run
 ```bash
-python -m backend.import_hetionet          # lite: fits Aura Free
-```
-
-#### Start Backend (Terminal 1)
-```bash
-# from the repo root (not inside backend/)
+# Terminal 1: backend (from the repo root, not inside backend/)
 uvicorn backend.main:app --reload --port 8000
-```
 
-#### Start Frontend (Terminal 2)
-```bash
+# Terminal 2: frontend
+npm install
 npm run dev
 ```
+Open http://localhost:3000. Check the backend at http://localhost:8000/health and http://localhost:8000/test-db, and browse the auto-generated API docs at http://localhost:8000/docs.
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
----
-
-## 📁 Project Structure
-
-```
-neurograph-bioai/
-├── 📄 App.tsx                 # Main React application
-├── 📄 index.tsx               # React entry point
-├── 📄 types.ts                # TypeScript type definitions
-├── 📄 constants.ts            # Application constants
-│
-├── 📁 components/             # React UI Components
-│   ├── Dashboard.tsx          # Main dashboard view
-│   ├── PredictionAnalysis.tsx # Prediction engine UI
-│   ├── KnowledgeExplorer.tsx  # Graph exploration
-│   ├── ComparisonView.tsx     # Drug comparison
-│   ├── GraphView.tsx          # D3 graph visualization
-│   ├── NetworkGraph.tsx       # Network visualization
-│   └── ...
-│
-├── 📁 services/               # Frontend services
-│   ├── api.ts                 # Backend API client
-│   └── exportService.ts       # PDF/JSON export
-│
-├── 📁 backend/                # Python Backend
-│   ├── main.py               # FastAPI application
-│   ├── database.py           # Neo4j connection
-│   ├── requirements.txt      # Python dependencies
-│   │
-│   ├── 📁 models/            # ML Models
-│   │   ├── architecture.py   # GNN architecture
-│   │   ├── gnn.py           # GNN predictor
-│   │   └── train.py         # Training script
-│   │
-│   ├── 📁 services/          # Backend services
-│   │   ├── neurosymbolic.py # Main prediction service
-│   │   └── symbolic.py      # Symbolic reasoner
-│   │
-│   └── 📁 checkpoints/       # Trained models
-│       ├── best_model.pt     # Best validation model
-│       └── training_history.json
-│
-└── 📁 public/                # Static assets
-    └── *.png                 # Charts and images
-```
-
----
-
-## 🎓 Training the Model
-
-To train the GNN model on your own data:
-
+### Optional: trained model and X-ray analysis
 ```bash
-cd backend
-python -m models.train
+pip install -r backend/requirements-ml.txt   # 1-2 GB (PyTorch, torchxrayvision, scikit-learn)
 ```
-
-### Training Configuration
-
-Edit `backend/models/train.py` to adjust:
-- Learning rate
-- Batch size
-- Number of epochs
-- Model dimensions
-- Dropout rates
-
-### Checkpoints
-
-Trained models are saved to `backend/checkpoints/`:
-- `best_model.pt` - Best validation AUC
-- `checkpoint_epoch_N.pt` - Periodic saves
-- `training_history.json` - Loss & metrics history
+Without it the API still runs; AMIE reports "unavailable" and scores use the fallback described below.
 
 ---
 
-## 📊 API Reference
+## 📁 Project structure
 
-### Endpoints
+```
+├── App.tsx, index.tsx, types.ts, constants.ts
+├── components/            Dashboard, PredictionAnalysis, KnowledgeExplorer,
+│                          ComparisonView, GraphView, AMIEAnalysis, ...
+├── services/
+│   ├── api.ts             Backend client
+│   ├── config.ts          API_URL from VITE_API_URL
+│   └── exportService.ts   PDF / JSON export
+├── backend/
+│   ├── main.py            FastAPI app and routes
+│   ├── database.py        Neo4j client (reads .env)
+│   ├── import_hetionet.py Loads Hetionet into Neo4j
+│   ├── requirements.txt   Core dependencies (lightweight)
+│   ├── requirements-ml.txt  Optional PyTorch / X-ray stack
+│   ├── models/            architecture.py, gnn.py (predictor), train.py
+│   ├── services/          neurosymbolic.py, symbolic.py, analysis.py, amie.py
+│   └── checkpoints/       training_history.json (best_model.pt is gitignored)
+├── tests/                 test_analysis.py
+├── Dockerfile, render.yaml, vercel.json
+├── .env.example
+└── public/                Static assets and charts
+```
+
+---
+
+## 📊 API reference
+
+Interactive docs: `/docs` on any running backend. Responses use `{"status": "success" | "error" | "not_found" | "no_evidence", ...}`.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/` | Health check |
-| `GET` | `/test-db` | Test Neo4j connection |
-| `GET` | `/diseases` | List all diseases |
-| `GET` | `/diseases/{id}` | Disease details + predictions |
-| `GET` | `/predict?disease_id=X` | Get repurposing predictions |
-| `GET` | `/drugs` | List all drugs |
-| `GET` | `/drugs/{id}` | Drug details |
-| `GET` | `/graph/subgraph` | Get knowledge subgraph |
-| `GET` | `/stats` | System statistics |
+|---|---|---|
+| GET | `/health` | Liveness check (does not touch Neo4j) |
+| GET | `/keepalive` | Wakes the server and writes a tiny record so Aura stays active. Point an uptime monitor here |
+| GET | `/test-db` | Neo4j connectivity and node count |
+| GET | `/diseases` | Disease list |
+| GET | `/diseases/{disease_id}` | Disease details |
+| GET | `/diseases/{disease_id}/related?limit=` | Related entities |
+| GET | `/drugs?limit=` | Drug list |
+| GET | `/drugs/{drug_id}` | Drug details |
+| GET | `/drugs/{drug_id}/related?limit=` | Related entities |
+| GET | `/predict?disease_id=` | Ranked drug candidates with explanations |
+| GET | `/analyze?q=&entity_type=` | Graph-grounded analysis of a typed drug or disease name |
+| GET | `/explore/network?node_id=&depth=` | Local network around a node |
+| GET | `/explore/full-network/{entity_type}/{entity_id}?max_nodes=` | Larger network for the explorer |
+| GET | `/explore/drug-disease-path/{drug_id}/{disease_id}` | Paths linking a drug and a disease |
+| GET | `/stats` | Graph statistics (cached for an hour) |
+| GET | `/model/status` | Whether a trained model is loaded |
+| POST | `/model/train` | Start training in the background |
+| GET | `/model/training-status` | Training progress |
+| POST | `/model/reload` | Reload the checkpoint |
+| GET / POST | `/cache/stats` · `/cache/clear` | Prediction cache |
+| POST | `/amie/analyze` | X-ray upload (needs the ML install) |
+| GET | `/amie/status` | X-ray model availability |
 
-### Example Request
-
+**Example: `/predict`**
 ```bash
 curl "http://localhost:8000/predict?disease_id=DOID:10652"
 ```
-
-### Example Response
-
 ```json
 {
   "status": "success",
@@ -522,7 +341,7 @@ curl "http://localhost:8000/predict?disease_id=DOID:10652"
         {
           "rule": "Mechanism of Action",
           "confidence": 1.0,
-          "path": ["Aspirin", "BINDS", "PTGS2", "ASSOCIATES", "Alzheimer"]
+          "path": ["…graph path returned by Neo4j…"]
         }
       ]
     }
@@ -530,54 +349,99 @@ curl "http://localhost:8000/predict?disease_id=DOID:10652"
 }
 ```
 
+**Example: `/analyze`**
+```bash
+curl "http://localhost:8000/analyze?q=metformin&entity_type=drug"
+```
+Returns `entity`, `prediction` (`source`, `target`, `neuralScore`, `symbolicConfidence`, `noveltyScore`, `explanation`, `reasoningChain`, `scoreSource`), `alternatives`, and `graph` (`nodes`, `links`). `scoreSource` is `"gnn"` or `"graph-evidence"`.
+
 ---
 
-## 📚 Data Sources
+## 🎓 Training the model
 
-- [**Hetionet**](https://het.io/) - Integrative biomedical knowledge graph (29 resources)
-- [**DrugBank**](https://www.drugbank.com/) - Comprehensive drug information
-- [**DisGeNET**](https://www.disgenet.org/) - Gene-disease associations
-- [**SIDER**](http://sideeffects.embl.de/) - Drug side effects
-- [**Gene Ontology**](http://geneontology.org/) - Biological annotations
+```bash
+pip install -r backend/requirements-ml.txt
+python -m backend.models.train --epochs 30 --batch-size 256
+```
+
+The script reads the graph from Neo4j, builds positive and negative pairs, trains, and writes `best_model.pt`, periodic checkpoints and `training_history.json` to `backend/checkpoints/`. See [TRAINING.md](TRAINING.md) for all options. After training, restart the backend or call `POST /model/reload`.
+
+> A checkpoint is tied to the graph it was trained on (node indices come from the database). If you reload or change the data, retrain. Checkpoint files are gitignored, so a fresh clone or deployment has no trained model.
+
+---
+
+## ☁️ Deployment
+
+| Piece | Where | Notes |
+|---|---|---|
+| Database | Neo4j AuraDB Free | Auto-pauses after 72 hours of inactivity and is deleted after 30 days paused |
+| Backend | Render (uses `render.yaml` and the `Dockerfile`) | Free tier sleeps after 15 minutes idle (about 30-60 s wake-up) |
+| Frontend | Vercel (uses `vercel.json`) | Static build |
+
+**Steps**
+1. Push the repo to GitHub (make sure `.env` is not committed).
+2. **Render:** *New → Blueprint*, pick the repo, and set `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD` (and `NEO4J_DATABASE` if you have one). Verify `<render-url>/health` and `<render-url>/test-db`.
+3. **Vercel:** import the repo and set `VITE_API_URL` to the Render URL (no trailing slash). This value is applied at build time, so redeploy after changing it.
+4. **Render again:** set `CORS_ORIGINS` to your exact Vercel URL (no trailing slash).
+5. **Keep it awake:** add a free uptime monitor (for example UptimeRobot) that requests `<render-url>/keepalive` every 5 minutes.
+
+The free tiers have no uptime guarantee. If Aura deletes an idle instance, create a new one and re-run `python -m backend.import_hetionet`. PyTorch does not fit on Render's free memory, so AMIE and a trained model need a larger instance.
+
+---
+
+## 🧪 Testing
+
+```bash
+python -m tests.test_analysis     # logic tests with a fake database
+npx tsc --noEmit                  # frontend type check
+npm run build                     # production build
+```
+
+The unit tests cover entity resolution, scoring, reasoning-chain orientation and graph integrity. They do not exercise a live Neo4j.
+
+---
+
+## 🔧 Troubleshooting
+
+| Symptom | Likely cause and fix |
+|---|---|
+| Dropdown stuck on "Loading diseases…" | Backend not running or unreachable. Check `/health`, then `/test-db`. In production check `VITE_API_URL` and redeploy the frontend |
+| `URI scheme '' is not supported` | `NEO4J_URI` is missing the `neo4j+s://` prefix |
+| `Cannot resolve address` | Wrong or placeholder instance address, or the instance is paused |
+| `Unauthorized` | Wrong username or password. Newer Aura instances use the instance ID as the username |
+| Browser console shows a CORS error | `CORS_ORIGINS` must exactly match the frontend origin |
+| `/test-db` shows 0 nodes | The data has not been loaded. Run `python -m backend.import_hetionet` |
+| `No module named 'torchxrayvision'` | Install `backend/requirements-ml.txt` (only needed for AMIE and a trained model) |
+| `python -m backend...` module not found | Run it from the repo root, not from inside `backend/` |
+
+---
+
+## ⚠️ Known limitations
+
+- **No trained model is shipped.** Without `best_model.pt`, the Predictor falls back to deterministic placeholder scores, and `/analyze` uses the graph-evidence score. Train a model for real GNN scores.
+- **Evaluation is optimistic.** Validation uses a random split with random negatives, and message passing appears to include the validation edges. Stricter evaluation (held-out edges, disease-wise splits, ranking metrics such as Hits@K) is future work.
+- **Transductive model.** It cannot score drugs or diseases that were not in the training graph.
+- **Candidate selection in `/predict`** considers a limited set of candidates rather than every drug.
+- **Heuristic fields.** In `/analyze`, `symbolicConfidence` is the share of four evidence types found, and `noveltyScore` is a simple heuristic.
+- **Static data.** Hetionet is a 2017 snapshot.
+- **Free-tier hosting** sleeps, pauses and can be deleted when idle.
+- **Not a medical device.** Do not use for clinical decisions.
+
+---
+
+## 📚 Data sources and acknowledgements
+
+- [**Hetionet**](https://het.io/): Himmelstein et al., *Systematic integration of biomedical knowledge prioritizes drugs for repurposing*, eLife 2017. It aggregates DrugBank, DisGeNET, the Gene Ontology and other resources. This project loads Hetionet only.
+- [**Neo4j**](https://neo4j.com/), [**FastAPI**](https://fastapi.tiangolo.com/), [**PyTorch**](https://pytorch.org/), [**React**](https://react.dev/) and [**D3**](https://d3js.org/).
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our contributing guidelines.
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
----
+Fork the repo, create a feature branch, commit, push, and open a pull request.
 
 ## 📄 License
 
-MIT License - feel free to use for research and education.
+MIT License. Add a `LICENSE` file with the full text and your name before publishing.
 
----
-
-## 🙏 Acknowledgments
-
-- **Hetionet** team for the comprehensive biomedical knowledge graph
-- **PyTorch Geometric** for GNN building blocks inspiration
-- **Neo4j** for the powerful graph database platform
-- **FastAPI** for the modern Python web framework
-
----
-
-<div align="center">
-
-### ⭐ Star this repo if you find it useful!
-
-**[Documentation](docs/)** • **[Report Bug](issues/)** • **[Request Feature](issues/)**
-
-<sub>Built with ❤️ for drug discovery research</sub>
-
-
-</div>
-#   b i o g r a p h  
- 
+<div align="center"><sub>Built for drug discovery research.</sub></div>
