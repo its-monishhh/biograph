@@ -3,15 +3,20 @@ services:
     name: neurograph-api
     runtime: docker
     plan: free
+    autoDeploy: true
     healthCheckPath: /health
     envVars:
       - key: NEO4J_URI
         sync: false
       - key: NEO4J_USERNAME
-        value: neo4j
+        sync: false   # on newer Aura instances this is the instance ID, not "neo4j"
       - key: NEO4J_PASSWORD
         sync: false
-      - key: GROQ_API_KEY
-        sync: false
+      - key: NEO4J_DATABASE
+        sync: false   # optional: paste it if your Aura credentials file has it
       - key: CORS_ORIGINS
-        sync: false   # e.g. https://your-app.vercel.app
+        sync: false   # your exact Vercel URL, e.g. https://your-app.vercel.app
+      - key: ADMIN_TOKEN
+        generateValue: true   # unlocks /model/train, /model/reload, /cache/clear (send as X-Admin-Token)
+      - key: RATE_LIMIT_PER_MIN
+        value: "60"

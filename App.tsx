@@ -16,6 +16,7 @@ function App() {
   // Data State
   const [diseases, setDiseases] = useState<Disease[]>([]);
   const [stats, setStats] = useState<any>(null);
+  const [modelInfo, setModelInfo] = useState<{ status?: string } | null>(null);
 
   // Predictor State
   const [selectedDisease, setSelectedDisease] = useState<string>('');
@@ -53,18 +54,29 @@ function App() {
   }, []);
 
   const loadInitialData = async () => {
-    try {
-      const [diseaseList, statsData] = await Promise.all([
-        api.getDiseases(),
-        api.getStats()
-      ]);
-      setDiseases(diseaseList);
-      setStats(statsData);
-      if (diseaseList.length > 0) setSelectedDisease(diseaseList[0].id);
-    } catch (e: any) {
-      console.error(e);
-      setError("Failed to load initial data. Ensure backend is running.");
+    setError(null);
+    // Independent requests: a slow/failed /stats must not block the disease list.
+    const [diseasesRes, statsRes, modelRes] = await Promise.allSettled([
+      api.getDiseases(),
+      api.getStats(),
+      api.getModelStatus(),
+    ]);
+    if (diseasesRes.status === 'fulfilled') {
+      setDiseases(diseasesRes.value);
+      if (diseasesRes.value.length > 0) setSelectedDisease(diseasesRes.value[0].id);
+      else setError("Connected, but the database has no diseases. Run: python -m backend.import_hetionet");
+    } else {
+      console.error(diseasesRes.reason);
+      const onLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+      const missingUrl = !onLocalhost && /127\.0\.0\.1|localhost/.test(API_URL);
+      setError(
+        missingUrl
+          ? "This site was built without VITE_API_URL, so it is calling localhost. Set VITE_API_URL in Vercel to your Render URL, then redeploy."
+          : `Could not reach the backend at ${API_URL} (${diseasesRes.reason?.message || 'unknown error'}). Check the URL, CORS_ORIGINS on the server, and that the server is awake.`
+      );
     }
+    if (statsRes.status === 'fulfilled') setStats(statsRes.value);
+    if (modelRes.status === 'fulfilled') setModelInfo(modelRes.value?.model ?? null);
   };
 
   const handlePredict = async () => {
@@ -253,7 +265,13 @@ function App() {
                     </div>
                     <div className="relative z-10">
                       <h3 className="text-lg font-bold text-blue-400 mb-1">AI Model</h3>
-                      <p className="text-sm text-gray-300">Custom GNN model with AUC of 0.8959</p>
+                      <p className="text-sm text-gray-300">
+                        {modelInfo?.status === 'loaded'
+                          ? 'Trained GNN model loaded'
+                          : modelInfo
+                            ? 'No trained model loaded: scores come from shared-gene evidence in the graph'
+                            : 'Model status unavailable'}
+                      </p>
                     </div>
                   </div>
 
@@ -271,7 +289,7 @@ function App() {
                             value={selectedDisease}
                             onChange={(e) => setSelectedDisease(e.target.value)}
                           >
-                            {diseases.length === 0 && <option>Loading diseases...</option>}
+                            {diseases.length === 0 && <option>{error ? 'Unavailable - see error' : 'Loading diseases...'}</option>}
                             {diseases.map(d => (
                               <option key={d.id} value={d.id}>{d.name}</option>
                             ))}
@@ -384,7 +402,7 @@ function App() {
                                   return (
                                     <div>
                                       <div className={`text-2xl font-bold ${tier.color}`}>{cappedScore.toFixed(0)}%</div>
-                                      <div className="text-[10px] uppercase tracking-wider text-gray-600 font-bold">Confidence</div>
+                                      <div className="text-[10px] uppercase tracking-wider text-gray-600 font-bold">{pred.score_source === 'graph-evidence' ? 'Evidence' : 'Confidence'}</div>
                                     </div>
                                   );
                                 })()}
@@ -746,7 +764,7 @@ const DiseaseDetailView = ({ diseaseId }: { diseaseId: string }) => {
                       <div className={`text-2xl font-black ${pred.score >= 0.7 ? 'text-green-400' : pred.score >= 0.5 ? 'text-yellow-400' : 'text-orange-400'}`}>
                         {(pred.score * 100).toFixed(0)}%
                       </div>
-                      <div className="text-[10px] text-gray-600 uppercase font-bold tracking-wider">Confidence</div>
+                      <div className="text-[10px] text-gray-600 uppercase font-bold tracking-wider">{pred.score_source === 'graph-evidence' ? 'Evidence' : 'Confidence'}</div>
                     </div>
                   </div>
 

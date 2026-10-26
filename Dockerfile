@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 WORKDIR /app
-ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1
 
 # Core (lightweight) deps by default. To bake in the ML stack:
 #   docker build --build-arg ML=1 .
@@ -10,5 +10,9 @@ RUN if [ "$ML" = "1" ]; then pip install -r backend/requirements-ml.txt; \
     else pip install -r backend/requirements.txt; fi
 
 COPY backend ./backend
+
+# Run as an unprivileged user
+RUN useradd --create-home --uid 10001 appuser
+USER appuser
 # Hosts inject $PORT; default 8000 locally
 CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

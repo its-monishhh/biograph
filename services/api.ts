@@ -1,4 +1,13 @@
 import { API_URL } from './config';
+import type { PredictionResult, GraphData } from '../types';
+
+export interface AnalysisResponse {
+    entity: { id: string; name: string; kind: 'drug' | 'disease' };
+    prediction: PredictionResult;
+    alternatives: { id: string; name: string; score: number; sharedGenes: number }[];
+    graph: GraphData;
+    suggestions: string[];
+}
 
 export interface Disease {
     id: string;
@@ -10,6 +19,9 @@ export interface Prediction {
     drug_name: string;
     score: number;
     explanations: Explanation[];
+    // 'gnn' = trained model score; 'graph-evidence' = score from shared-gene support in Neo4j
+    score_source?: 'gnn' | 'graph-evidence';
+    shared_genes?: number;
 }
 
 export interface Explanation {
@@ -193,6 +205,16 @@ export const api = {
             return data.data;
         }
         throw new Error(data.message || 'Failed to fetch drug-disease path');
+    },
+
+    // Graph-grounded analysis of a drug/disease name typed by the user (no LLM).
+    analyze: async (name: string, type: 'drug' | 'disease' | 'auto' = 'auto'): Promise<AnalysisResponse> => {
+        const response = await fetch(`${API_URL}/analyze?q=${encodeURIComponent(name)}&entity_type=${type}`);
+        const data = await response.json();
+        if (data.status === 'success') {
+            return data.data;
+        }
+        throw new Error(data.message || 'Analysis failed');
     },
 
     getModelStatus: async () => {

@@ -44,6 +44,9 @@ export interface PredictionResult {
   explanation: string;
   reasoningChain: SymbolicPath[];
   noveltyScore: number;
+  targetId?: string;
+  // 'gnn' = trained model score; 'graph-evidence' = score from shared-gene support in Neo4j
+  scoreSource?: 'gnn' | 'graph-evidence';
 }
 
 export interface AnalysisRequest {

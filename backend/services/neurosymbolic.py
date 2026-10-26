@@ -1,8 +1,11 @@
 from backend.models.gnn import gnn_predictor
 from backend.services.symbolic import symbolic_reasoner
-from backend.database import db
-from typing import Dict, List, Optional
-import time
+from backend.services.analysis import find_candidates, score_candidates, get_name
+from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, List
+
+CANDIDATE_LIMIT = 200
+SYMBOLIC_BOOST = 0.2
 
 class NeuroSymbolicService:
     def __init__(self):
@@ -16,81 +19,54 @@ class NeuroSymbolicService:
 
     def predict_repurposing(self, disease_id: str, top_k: int = 10, use_cache: bool = True) -> List[Dict]:
         """
-        Predict drug repurposing candidates with caching and batch processing.
-        
-        Args:
-            disease_id: Target disease identifier
-            top_k: Number of top results to return
-            use_cache: Whether to use cached results
+        Rank drug candidates for a disease.
+
+        1. Candidates: drugs linked to the disease through genes (drug -> gene -> disease),
+           excluding known treatments, ordered by how many shared genes support them.
+        2. Score: the trained GNN if a checkpoint is loaded, otherwise a transparent
+           graph-evidence score n / (n + 5). Placeholder scores are never used here.
+        3. Explain: pair-specific symbolic rules for the top candidates only.
+        4. With a trained GNN, +0.2 (capped at 1.0) when an explanation path exists.
         """
-        start_time = time.time()
-        
-        # Check full result cache first
         cache_key = self._get_cache_key(disease_id, top_k)
         if use_cache and cache_key in self._result_cache:
             self._cache_hits += 1
             return self._result_cache[cache_key]
-        
         self._cache_misses += 1
-        
-        # 1. Candidate Selection - Get all drugs not already treating this disease
-        query = """
-        MATCH (d:Compound)
-        WHERE NOT (d)-[:TREATS]->(:Disease {id: $disease_id})
-        RETURN d.id as id, d.name as name
-        LIMIT 50
-        """
-        candidates = db.query(query, {"disease_id": disease_id})
-        print(f"DEBUG: Disease ID: {disease_id}")
-        print(f"DEBUG: Candidates found: {len(candidates)}")
-        
+
+        disease_name = get_name("Disease", disease_id)
+        if disease_name is None:
+            return []
+        entity = {"id": disease_id, "name": disease_name, "kind": "disease"}
+
+        candidates = find_candidates(entity, limit=CANDIDATE_LIMIT)
         if not candidates:
             return []
-        
-        # 2. Batch Neural Prediction (GNN) - Much faster than individual calls
-        drug_disease_pairs = [(cand['id'], disease_id) for cand in candidates]
-        scores = gnn_predictor.predict_batch(drug_disease_pairs)
-        
-        # 3. Build initial results with scores
+        source = score_candidates(entity, candidates)
+        top = candidates[:top_k]
+
+        # explanations are independent queries, so run them concurrently
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            explanations = list(pool.map(
+                lambda c: symbolic_reasoner.explain(c["id"], disease_id, c["name"], disease_name), top))
+
         results = []
-        high_score_pairs = []  # Pairs that need explanation
-        
-        for i, cand in enumerate(candidates):
-            drug_id = cand['id']
-            drug_name = cand['name']
-            score = scores[i]
-            
+        for cand, expl in zip(top, explanations):
+            score = cand["score"]
+            if source == "gnn" and expl:
+                score = min(score + SYMBOLIC_BOOST, 1.0)
             results.append({
-                "drug_id": drug_id,
-                "drug_name": drug_name,
+                "drug_id": cand["id"],
+                "drug_name": cand["name"],
                 "score": score,
-                "explanations": []
+                "explanations": expl,
+                "score_source": source,
+                "shared_genes": cand["evidence"],
             })
-            
-            # Only get explanations for candidates with score > 0
-            if score > 0.0:
-                high_score_pairs.append((i, drug_id))
-        
-        # 4. Batch Symbolic Explanation - Only for high-scoring candidates
-        for idx, drug_id in high_score_pairs:
-            explanation = symbolic_reasoner.explain(drug_id, disease_id)
-            results[idx]["explanations"] = explanation
-            
-            # Boost score if symbolic explanation exists
-            if explanation:
-                results[idx]["score"] = min(results[idx]["score"] + 0.2, 1.0)
-            
-        # Sort by score
-        results.sort(key=lambda x: x['score'], reverse=True)
-        final_results = results[:top_k]
-        
-        # Cache results
-        self._result_cache[cache_key] = final_results
-        
-        elapsed = time.time() - start_time
-        print(f"DEBUG: Prediction completed in {elapsed:.3f}s")
-        
-        return final_results
+        results.sort(key=lambda r: r["score"], reverse=True)
+
+        self._result_cache[cache_key] = results
+        return results
 
     def clear_all_caches(self):
         """Clear all caches in the system"""

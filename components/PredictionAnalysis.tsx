@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { analyzeRepurposing, generateKnowledgeSubgraph } from '../services/groqService';
+import { api } from '../services/api';
 import { exportToPDF, exportToJSON } from '../services/exportService';
 import { PredictionResult, GraphData } from '../types';
 import NetworkGraph from './NetworkGraph';
@@ -83,17 +83,14 @@ const PredictionAnalysis: React.FC = () => {
     setError(null);
 
     try {
-      const [prediction, graph] = await Promise.all([
-        analyzeRepurposing(searchTerm, searchType),
-        generateKnowledgeSubgraph(searchTerm)
-      ]);
+      const { prediction, graph } = await api.analyze(searchTerm, searchType);
 
       setResult(prediction);
       setGraphData(graph);
       addToHistory(searchTerm, searchType, prediction.target);
     } catch (err) {
       console.error(err);
-      setError("Analysis failed. Please check your API key and try again.");
+      setError(err instanceof Error ? err.message : 'Analysis failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -276,7 +273,7 @@ const PredictionAnalysis: React.FC = () => {
               <div className="space-y-3">
                 <div>
                   <div className="flex justify-between text-xs mb-1">
-                    <span className="text-slate-500">Neural (GNN)</span>
+                    <span className="text-slate-500">{result.scoreSource === 'gnn' ? 'Neural (GNN)' : 'Graph evidence'}</span>
                     <span className="text-cyan-400 font-mono">{(result.neuralScore * 100).toFixed(0)}%</span>
                   </div>
                   <div className="w-full bg-white/[0.05] rounded-full h-1.5">

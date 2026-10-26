@@ -1,12 +1,15 @@
 import os
 import time
-import httpx
-from pydantic import BaseModel
-from fastapi import FastAPI, BackgroundTasks, File, UploadFile, HTTPException
+import secrets
+from collections import deque
+from typing import Dict
+from fastapi import FastAPI, BackgroundTasks, File, UploadFile, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from backend.database import db
 from backend.services.neurosymbolic import service
 from backend.models.gnn import gnn_predictor
+from backend.services.analysis import analyze_entity
 from backend.services.amie import get_amie_service, get_disease_ids_for_pathology
 
 app = FastAPI(title="Neurosymbolic Drug Repurposing API")
@@ -25,6 +28,52 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---- admin protection ----
+def require_admin(x_admin_token: str = Header(default="")):
+    """Guards endpoints that change server state (train, reload, clear cache).
+    Disabled unless ADMIN_TOKEN is set; then the caller must send it in X-Admin-Token."""
+    expected = os.getenv("ADMIN_TOKEN", "").strip()
+    if not expected:
+        raise HTTPException(status_code=403, detail="Admin endpoints are disabled. Set ADMIN_TOKEN on the server to enable them.")
+    if not secrets.compare_digest(x_admin_token.encode(), expected.encode()):
+        raise HTTPException(status_code=401, detail="Invalid admin token.")
+
+
+# ---- best-effort rate limiting (per client IP, in memory) ----
+class RateLimited(Exception):
+    pass
+
+
+_rate_hits: Dict[str, deque] = {}
+
+
+def rate_limit(request: Request):
+    """Allow RATE_LIMIT_PER_MIN requests per minute per IP (0 disables).
+    Protects the free database and server from floods. It trusts the forwarded
+    IP header, so a determined client can evade it; it is not a security boundary."""
+    limit = int(os.getenv("RATE_LIMIT_PER_MIN", "60"))
+    if limit <= 0:
+        return
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    ip = forwarded or (request.client.host if request.client else "unknown")
+    now = time.time()
+    hits = _rate_hits.setdefault(ip, deque())
+    while hits and now - hits[0] > 60:
+        hits.popleft()
+    if len(hits) >= limit:
+        raise RateLimited()
+    hits.append(now)
+    if len(_rate_hits) > 5000:  # drop stale entries so memory stays bounded
+        for key in [k for k, v in _rate_hits.items() if not v or now - v[-1] > 60]:
+            _rate_hits.pop(key, None)
+
+
+@app.exception_handler(RateLimited)
+async def _rate_limited_handler(request: Request, exc: RateLimited):
+    return JSONResponse(status_code=429, content={
+        "status": "error", "message": "Too many requests. Please wait a minute and try again."})
 
 
 # ---- small in-memory TTL cache for expensive, rarely-changing queries ----
@@ -76,37 +125,18 @@ def keepalive():
         return {"status": "error", "message": str(e)}
 
 
-class AICompleteRequest(BaseModel):
-    system: str
-    prompt: str
+@app.get("/analyze", dependencies=[Depends(rate_limit)])
+def analyze(q: str, entity_type: str = "auto"):
+    """Graph-grounded analysis of a drug or disease typed by the user.
+    Resolves the name to a Neo4j node and builds the result from graph paths
+    (and the GNN when a trained model is loaded). No LLM involved."""
+    if entity_type not in ("drug", "disease", "auto"):
+        return {"status": "error", "message": "entity_type must be drug, disease or auto"}
+    try:
+        return analyze_entity(q, entity_type)
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
-
-@app.post("/ai/complete")
-async def ai_complete(req: AICompleteRequest):
-    """Server-side proxy for Groq so the API key never ships to the browser."""
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="GROQ_API_KEY is not configured on the server")
-    if len(req.prompt) > 4000 or len(req.system) > 4000:
-        raise HTTPException(status_code=413, detail="Prompt too long")
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-                "messages": [
-                    {"role": "system", "content": req.system},
-                    {"role": "user", "content": req.prompt},
-                ],
-                "temperature": 0.7,
-                "max_tokens": 2048,
-                "response_format": {"type": "json_object"},
-            },
-        )
-    if r.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Groq error {r.status_code}")
-    return {"content": r.json()["choices"][0]["message"]["content"]}
 
 @app.get("/test-db")
 def test_db():
@@ -116,7 +146,7 @@ def test_db():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.get("/predict")
+@app.get("/predict", dependencies=[Depends(rate_limit)])
 def predict(disease_id: str):
     try:
         results = service.predict_repurposing(disease_id)
@@ -127,7 +157,7 @@ def predict(disease_id: str):
 @app.get("/diseases")
 def get_diseases():
     try:
-        query = "MATCH (d:Disease) RETURN d.id as id, d.name as name ORDER BY d.name LIMIT 100"
+        query = "MATCH (d:Disease) RETURN d.id as id, d.name as name ORDER BY d.name LIMIT 500"
         results = ttl_cached("diseases", 3600, lambda: db.query(query))
         return {"status": "success", "data": results}
     except Exception as e:
@@ -370,7 +400,7 @@ def get_drug_details(drug_id: str):
         return {"status": "error", "message": str(e)}
 
 
-@app.get("/explore/network")
+@app.get("/explore/network", dependencies=[Depends(rate_limit)])
 def get_network_data(node_id: str, depth: int = 1):
     """Get network data for visualization centered on a node"""
     try:
@@ -428,7 +458,7 @@ def get_network_data(node_id: str, depth: int = 1):
         return {"status": "error", "message": str(e)}
 
 
-@app.get("/explore/full-network/{entity_type}/{entity_id}")
+@app.get("/explore/full-network/{entity_type}/{entity_id}", dependencies=[Depends(rate_limit)])
 def get_full_network(entity_type: str, entity_id: str, max_nodes: int = 50):
     """
     Get comprehensive network showing ALL relationship types for an entity.
@@ -621,7 +651,7 @@ def get_full_network(entity_type: str, entity_id: str, max_nodes: int = 50):
         return {"status": "error", "message": str(e)}
 
 
-@app.get("/explore/drug-disease-path/{drug_id}/{disease_id}")
+@app.get("/explore/drug-disease-path/{drug_id}/{disease_id}", dependencies=[Depends(rate_limit)])
 def get_drug_disease_path(drug_id: str, disease_id: str):
     """
     Get all paths connecting a drug to a disease through genes and other entities.
@@ -798,7 +828,7 @@ def get_cache_stats():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.post("/cache/clear")
+@app.post("/cache/clear", dependencies=[Depends(require_admin)])
 def clear_cache():
     """Clear all prediction caches"""
     try:
@@ -897,7 +927,7 @@ def run_training_background(epochs: int, batch_size: int, learning_rate: float):
         training_status["message"] = f"Training failed: {str(e)}"
 
 
-@app.post("/model/train")
+@app.post("/model/train", dependencies=[Depends(require_admin)])
 def start_training(
     background_tasks: BackgroundTasks,
     epochs: int = 50,
@@ -947,7 +977,7 @@ def get_training_status():
     }
 
 
-@app.post("/model/reload")
+@app.post("/model/reload", dependencies=[Depends(require_admin)])
 def reload_model():
     """Reload the trained model"""
     try:
@@ -965,7 +995,7 @@ def reload_model():
 # AMIE - Advanced Medical Imaging Environment
 # ============================================
 
-@app.post("/amie/analyze")
+@app.post("/amie/analyze", dependencies=[Depends(rate_limit)])
 async def analyze_xray(file: UploadFile = File(...)):
     """
     Analyze a chest X-ray image using TorchXRayVision.
@@ -1063,3 +1093,4 @@ def amie_status():
             "message": str(e),
             "data": {"available": False}
         }
+

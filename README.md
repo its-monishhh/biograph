@@ -125,10 +125,10 @@ RETURN d.name, g.name
 Two entry points share the same graph:
 
 **`/predict?disease_id=…` (Predictor tab)**
-1. Pick candidate drugs that do not already treat the disease.
-2. Score each (drug, disease) pair with the GNN.
-3. For candidates with a positive score, run the symbolic rules to find explanation paths.
-4. Add a boost if an explanation exists, then sort and return the top 10.
+1. Candidates: drugs linked to the disease through genes (`drug → gene → disease`), excluding known treatments, ordered by how many shared genes support them (up to 200).
+2. Score: the trained GNN if a checkpoint is loaded, otherwise the graph-evidence score `n / (n + 5)`, where `n` is the number of shared genes. The response says which one was used (`score_source`), and the UI labels it "Confidence" or "Evidence" accordingly. Placeholder scores are never shown.
+3. For the top candidates, run the symbolic rules. Each rule only fires when a real path connects *that* drug to *that* disease.
+4. With a trained GNN, add +0.2 (capped at 1.0) when an explanation exists. Then sort and return the top 10.
 
 **`/analyze?q=…&entity_type=drug|disease|auto` (Analysis, Explorer, Comparison)**
 1. Resolve the typed name to a real Compound or Disease node (case-insensitive match).
@@ -238,6 +238,8 @@ cp .env.example .env          # Windows: copy .env.example .env
 | `NEO4J_PASSWORD` | From the credentials file |
 | `NEO4J_DATABASE` | Optional, include it if the credentials file has it |
 | `CORS_ORIGINS` | Comma-separated frontend origins allowed to call the API. Default: `http://localhost:3000` |
+| `ADMIN_TOKEN` | Optional. Unlocks `/model/train`, `/model/reload` and `/cache/clear` (send it as the `X-Admin-Token` header). Without it those endpoints are disabled |
+| `RATE_LIMIT_PER_MIN` | Optional. Requests per minute per IP for expensive endpoints. Default `60`, `0` disables |
 | `VITE_API_URL` | Frontend only, set at build time. Default: `http://127.0.0.1:8000` |
 
 ### 4. Install and load the data (once)
@@ -286,9 +288,11 @@ Without it the API still runs; AMIE reports "unavailable" and scores use the fal
 │   ├── requirements.txt   Core dependencies (lightweight)
 │   ├── requirements-ml.txt  Optional PyTorch / X-ray stack
 │   ├── models/            architecture.py, gnn.py (predictor), train.py
-│   ├── services/          neurosymbolic.py, symbolic.py, analysis.py, amie.py
+│   ├── services/          neurosymbolic.py (ranking), symbolic.py (rules), analysis.py (evidence queries), amie.py
 │   └── checkpoints/       training_history.json (best_model.pt is gitignored)
-├── tests/                 test_analysis.py
+├── tests/                 test_analysis.py, test_predict.py, test_security.py
+├── scripts/               smoke_test.py (post-deploy check)
+├── .github/workflows/     ci.yml
 ├── Dockerfile, render.yaml, vercel.json
 ├── .env.example
 └── public/                Static assets and charts
@@ -298,7 +302,7 @@ Without it the API still runs; AMIE reports "unavailable" and scores use the fal
 
 ## 📊 API reference
 
-Interactive docs: `/docs` on any running backend. Responses use `{"status": "success" | "error" | "not_found" | "no_evidence", ...}`.
+Interactive docs: `/docs` on any running backend. `POST /model/train`, `/model/reload` and `/cache/clear` require the `X-Admin-Token` header (and are disabled when `ADMIN_TOKEN` is unset). Expensive endpoints return HTTP 429 when the per-IP rate limit is exceeded. Responses use `{"status": "success" | "error" | "not_found" | "no_evidence", ...}`.
 
 | Method | Endpoint | Description |
 |---|---|---|
@@ -375,15 +379,20 @@ The script reads the graph from Neo4j, builds positive and negative pairs, train
 | Piece | Where | Notes |
 |---|---|---|
 | Database | Neo4j AuraDB Free | Auto-pauses after 72 hours of inactivity and is deleted after 30 days paused |
-| Backend | Render (uses `render.yaml` and the `Dockerfile`) | Free tier sleeps after 15 minutes idle (about 30-60 s wake-up) |
-| Frontend | Vercel (uses `vercel.json`) | Static build |
+| Backend | Render (`render.yaml` + `Dockerfile`) | Free tier sleeps after 15 minutes idle (about 30-60 s wake-up) |
+| Frontend | Vercel (`vercel.json`) | Static build |
+| CI | GitHub Actions (`.github/workflows/ci.yml`) | Runs the tests, type check and build on every push |
 
 **Steps**
-1. Push the repo to GitHub (make sure `.env` is not committed).
-2. **Render:** *New → Blueprint*, pick the repo, and set `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD` (and `NEO4J_DATABASE` if you have one). Verify `<render-url>/health` and `<render-url>/test-db`.
-3. **Vercel:** import the repo and set `VITE_API_URL` to the Render URL (no trailing slash). This value is applied at build time, so redeploy after changing it.
+1. Push the repo to GitHub (make sure `.env` is not committed). CI runs automatically.
+2. **Render:** *New → Blueprint*, pick the repo, and fill in `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD` (and `NEO4J_DATABASE` if you have one) exactly as in the Aura credentials file. `ADMIN_TOKEN` is generated for you.
+3. **Vercel:** import the repo and add `VITE_API_URL` = your Render URL (no trailing slash, non-sensitive). It is applied at build time, so redeploy after changing it.
 4. **Render again:** set `CORS_ORIGINS` to your exact Vercel URL (no trailing slash).
-5. **Keep it awake:** add a free uptime monitor (for example UptimeRobot) that requests `<render-url>/keepalive` every 5 minutes.
+5. **Verify** with the smoke test:
+   ```bash
+   python scripts/smoke_test.py https://<render-url> https://<vercel-url>
+   ```
+6. **Keep it awake:** add a free uptime monitor (for example UptimeRobot) that requests `<render-url>/keepalive` every 5 minutes.
 
 The free tiers have no uptime guarantee. If Aura deletes an idle instance, create a new one and re-run `python -m backend.import_hetionet`. PyTorch does not fit on Render's free memory, so AMIE and a trained model need a larger instance.
 
@@ -392,12 +401,15 @@ The free tiers have no uptime guarantee. If Aura deletes an idle instance, creat
 ## 🧪 Testing
 
 ```bash
-python -m tests.test_analysis     # logic tests with a fake database
+python -m tests.test_analysis     # /analyze logic, fake database
+python -m tests.test_predict      # /predict pipeline, fake database
+python -m tests.test_security     # admin token and rate limiting
+python scripts/smoke_test.py <api-url> [frontend-url]   # live deployment check
 npx tsc --noEmit                  # frontend type check
 npm run build                     # production build
 ```
 
-The unit tests cover entity resolution, scoring, reasoning-chain orientation and graph integrity. They do not exercise a live Neo4j.
+The unit tests cover entity resolution, scoring, explanation format, boosts, the admin guard and the rate limiter. They use a fake database, so Cypher syntax is only exercised by the smoke test against a real deployment.
 
 ---
 
@@ -418,13 +430,14 @@ The unit tests cover entity resolution, scoring, reasoning-chain orientation and
 
 ## ⚠️ Known limitations
 
-- **No trained model is shipped.** Without `best_model.pt`, the Predictor falls back to deterministic placeholder scores, and `/analyze` uses the graph-evidence score. Train a model for real GNN scores.
+- **No trained model is shipped.** Checkpoints are gitignored, so a fresh clone or deployment ranks drugs with the graph-evidence score (shared genes), not GNN scores. This is a transparent counting heuristic, not machine learning. Train a model for GNN scores.
 - **Evaluation is optimistic.** Validation uses a random split with random negatives, and message passing appears to include the validation edges. Stricter evaluation (held-out edges, disease-wise splits, ranking metrics such as Hits@K) is future work.
 - **Transductive model.** It cannot score drugs or diseases that were not in the training graph.
-- **Candidate selection in `/predict`** considers a limited set of candidates rather than every drug.
+- **Candidates are gene-linked drugs only** (up to 200 per disease). Drugs with no gene path to the disease are never considered, even with a trained model.
 - **Heuristic fields.** In `/analyze`, `symbolicConfidence` is the share of four evidence types found, and `noveltyScore` is a simple heuristic.
 - **Static data.** Hetionet is a 2017 snapshot.
 - **Free-tier hosting** sleeps, pauses and can be deleted when idle.
+- **Rate limiting is best-effort.** It keys on the forwarded IP header, so it prevents accidental floods, not a determined attacker. There is no user authentication.
 - **Not a medical device.** Do not use for clinical decisions.
 
 ---

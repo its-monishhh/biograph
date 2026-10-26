@@ -271,7 +271,7 @@ export const exportToJSON = (
     metadata: {
       platform: 'NeuroGraph BioAI',
       version: '1.0.0',
-      model: 'Llama 3.3 70B'
+      model: result.scoreSource === 'gnn' ? 'GNN + symbolic rules over Neo4j' : 'Graph evidence over Neo4j'
     }
   };
 

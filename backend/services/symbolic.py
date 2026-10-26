@@ -1,112 +1,103 @@
-from backend.database import db
-from typing import Dict, List, Tuple
-from functools import lru_cache
-import hashlib
+"""
+Symbolic reasoner: turns graph evidence for a (drug, disease) pair into
+explanations the UI can draw.
+
+Every rule is specific to the pair. A rule only fires when a real path
+connects THIS drug to THIS disease, so an explanation always means something.
+The graph queries live in analysis.pair_evidence (one place, shared with /analyze).
+
+Explanation format (consumed by the frontend GraphView):
+    {"rule": str, "confidence": 1.0, "path": [node, REL, node, REL, node, ...]}
+where each node is {"id", "name"} and each REL is a relationship name.
+"""
+from typing import Dict, List, Optional, Tuple
+
+from backend.services.analysis import pair_evidence
+
 
 class SymbolicReasoner:
     def __init__(self):
-        # Define rules/metapaths
-        # Confirmed Schema: Compound, TREATS, BINDS, RESEMBLES, UPREGULATES
-        # Relaxed rules for higher recall in demo
+        # Documentation of the patterns (the queries themselves are in analysis.pair_evidence)
         self.rules = {
-            "Mechanism of Action": """
-                MATCH path = (d:Compound {id: $drug_id})-[:BINDS]->(g:Gene)-[]-(:Disease {id: $disease_id})
-                RETURN path LIMIT 1
-            """,
-            "Gene Regulation": """
-                MATCH path = (d:Compound {id: $drug_id})-[r:UPREGULATES|DOWNREGULATES]->(g:Gene)-[:ASSOCIATES]->(dis:Disease {id: $disease_id})
-                RETURN path LIMIT 1
-            """,
-            "Anatomical Context": """
-                MATCH path = (d:Compound {id: $drug_id})-[:TREATS]->(dis:Disease {id: $disease_id})-[:LOCALIZES]->(a:Anatomy)
-                RETURN path LIMIT 1
-            """,
-            "Known Treatment": """
-                 MATCH path = (d:Compound {id: $drug_id})-[:TREATS]->(d2:Disease)
-                 RETURN path LIMIT 1
-            """,
-            "Pharmacologic Class": """
-                MATCH path = (pc:PharmacologicClass)-[:INCLUDES]->(d:Compound {id: $drug_id})
-                RETURN path LIMIT 1
-            """,
-            "Similar Compound Strategy": """
-                MATCH path = (d:Compound {id: $drug_id})-[:RESEMBLES]-(other:Compound)-[:TREATS]->(dis:Disease {id: $disease_id})
-                RETURN path LIMIT 1
-            """,
-            "Similar Disease Strategy": """
-                MATCH path = (d:Compound {id: $drug_id})-[:TREATS]->(other:Disease)-[:RESEMBLES]-(dis:Disease {id: $disease_id})
-                RETURN path LIMIT 1
-            """
+            "Mechanism of Action": "(Drug)-[:BINDS]->(Gene)-[:ASSOCIATES]->(Disease)",
+            "Gene Regulation": "(Drug)-[:UPREGULATES|DOWNREGULATES]->(Gene)-[:ASSOCIATES]->(Disease)",
+            "Similar Compound Strategy": "(Drug)-[:RESEMBLES]-(Drug2)-[:TREATS]->(Disease)",
+            "Pharmacologic Class": "(Drug)<-[:INCLUDES]-(Class)-[:INCLUDES]->(Drug2)-[:TREATS]->(Disease)",
+            "Similar Disease Strategy": "(Drug)-[:TREATS]->(Disease2)-[:RESEMBLES]-(Disease)",
         }
-        
-        # Cache for explanations
         self._explanation_cache: Dict[str, List[Dict]] = {}
         self._cache_hits = 0
         self._cache_misses = 0
 
-    def _get_cache_key(self, drug_id: str, disease_id: str) -> str:
-        """Create consistent cache key"""
+    @staticmethod
+    def _get_cache_key(drug_id: str, disease_id: str) -> str:
         return f"{drug_id.lower()}:{disease_id.lower()}"
 
-    def explain(self, drug_id: str, disease_id: str) -> List[Dict]:
-        """Get explanations with caching"""
-        cache_key = self._get_cache_key(drug_id, disease_id)
-        
-        # Check cache first
-        if cache_key in self._explanation_cache:
+    def explain(self, drug_id: str, disease_id: str,
+                drug_name: Optional[str] = None, disease_name: Optional[str] = None) -> List[Dict]:
+        key = self._get_cache_key(drug_id, disease_id)
+        if key in self._explanation_cache:
             self._cache_hits += 1
-            return self._explanation_cache[cache_key]
-        
+            return self._explanation_cache[key]
         self._cache_misses += 1
-        explanations = self._compute_explanations(drug_id, disease_id)
-        
-        # Cache result
-        self._explanation_cache[cache_key] = explanations
+        explanations = self._compute_explanations(drug_id, disease_id, drug_name, disease_name)
+        self._explanation_cache[key] = explanations
         return explanations
 
-    def _compute_explanations(self, drug_id: str, disease_id: str) -> List[Dict]:
-        """Internal explanation computation"""
-        explanations = []
-        
-        for rule_name, query in self.rules.items():
-            results = db.query(query, {"drug_id": drug_id, "disease_id": disease_id})
-            if results:
-                # We found a path supporting this rule
-                # Extract path details for visualization
-                path_data = results[0]['path']
-                explanations.append({
-                    "rule": rule_name,
-                    "confidence": 1.0, # Symbolic rules are explicit
-                    "path": path_data # simplified for now
-                })
-        
-        return explanations
+    def _compute_explanations(self, drug_id, disease_id, drug_name, disease_name) -> List[Dict]:
+        ev = pair_evidence(drug_id, disease_id)
+        drug = {"id": drug_id, "name": drug_name or drug_id}
+        disease = {"id": disease_id, "name": disease_name or disease_id}
+
+        def node(row, id_key="id", name_key="name"):
+            return {"id": row[id_key], "name": row[name_key]}
+
+        def item(rule, path, examples):
+            return {"rule": rule, "confidence": 1.0, "path": path, "examples": examples}
+
+        out: List[Dict] = []
+        binds = [g for g in ev["genes"] if g["rel"] == "BINDS"]
+        regs = [g for g in ev["genes"] if g["rel"] in ("UPREGULATES", "DOWNREGULATES")]
+        if binds:
+            g = binds[0]
+            out.append(item("Mechanism of Action",
+                            [drug, "BINDS", node(g), "ASSOCIATES", disease], len(binds)))
+        if regs:
+            g = regs[0]
+            out.append(item("Gene Regulation",
+                            [drug, g["rel"], node(g), "ASSOCIATES", disease], len(regs)))
+        if ev["similar_drugs"]:
+            o = ev["similar_drugs"][0]
+            out.append(item("Similar Compound Strategy",
+                            [drug, "RESEMBLES", node(o), "TREATS", disease], len(ev["similar_drugs"])))
+        if ev["classes"]:
+            c = ev["classes"][0]
+            out.append(item("Pharmacologic Class",
+                            [drug, "MEMBER_OF", {"id": c["pid"], "name": c["pname"]},
+                             "INCLUDES", node(c), "TREATS", disease], len(ev["classes"])))
+        if ev["similar_diseases"]:
+            o = ev["similar_diseases"][0]
+            out.append(item("Similar Disease Strategy",
+                            [drug, "TREATS", node(o), "RESEMBLES", disease], len(ev["similar_diseases"])))
+        return out
 
     def explain_batch(self, pairs: List[Tuple[str, str]]) -> List[List[Dict]]:
-        """Batch explanation - process multiple drug-disease pairs"""
-        results = []
-        
-        for drug_id, disease_id in pairs:
-            explanations = self.explain(drug_id, disease_id)
-            results.append(explanations)
-        
-        return results
+        return [self.explain(d, s) for d, s in pairs]
 
     def clear_cache(self):
-        """Clear explanation cache"""
         self._explanation_cache.clear()
         self._cache_hits = 0
         self._cache_misses = 0
 
     def get_cache_stats(self) -> Dict:
-        """Get cache statistics"""
         total = self._cache_hits + self._cache_misses
         hit_rate = self._cache_hits / total if total > 0 else 0
         return {
             "cache_size": len(self._explanation_cache),
             "cache_hits": self._cache_hits,
             "cache_misses": self._cache_misses,
-            "hit_rate": f"{hit_rate:.2%}"
+            "hit_rate": f"{hit_rate:.2%}",
         }
+
 
 symbolic_reasoner = SymbolicReasoner()

@@ -4,3 +4,4 @@
 -r requirements.txt
 torch
 torchxrayvision
+scikit-learn

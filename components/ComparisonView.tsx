@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, ArrowLeftRight, Pill, Target, TrendingUp, Zap, CheckCircle } from 'lucide-react';
-import { analyzeRepurposing } from '../services/groqService';
+import { api } from '../services/api';
 import { PredictionResult } from '../types';
 
 interface ComparisonViewProps {
@@ -19,20 +19,23 @@ const ComparisonView: React.FC<ComparisonViewProps> = ({ isOpen, onClose }) => {
   const [result1, setResult1] = useState<PredictionResult | null>(null);
   const [result2, setResult2] = useState<PredictionResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleCompare = async () => {
     if (!drug1.trim() || !drug2.trim()) return;
     
     setLoading(true);
+    setError(null);
     try {
       const [res1, res2] = await Promise.all([
-        analyzeRepurposing(drug1, 'drug'),
-        analyzeRepurposing(drug2, 'drug')
+        api.analyze(drug1, 'drug'),
+        api.analyze(drug2, 'drug')
       ]);
-      setResult1(res1);
-      setResult2(res2);
+      setResult1(res1.prediction);
+      setResult2(res2.prediction);
     } catch (err) {
       console.error('Comparison failed:', err);
+      setError(err instanceof Error ? err.message : 'Comparison failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -111,6 +114,10 @@ const ComparisonView: React.FC<ComparisonViewProps> = ({ isOpen, onClose }) => {
           </div>
         </div>
 
+        {error && (
+          <div className="mb-4 text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</div>
+        )}
+
         <button
           onClick={handleCompare}
           disabled={loading || !drug1.trim() || !drug2.trim()}
@@ -146,7 +153,7 @@ const ComparisonView: React.FC<ComparisonViewProps> = ({ isOpen, onClose }) => {
                 </div>
                 
                 <div className="comparison-metric">
-                  <span className="text-xs text-slate-500">Neural Score</span>
+                  <span className="text-xs text-slate-500">{result1.scoreSource === 'gnn' ? 'Neural Score' : 'Graph Evidence'}</span>
                   <span className={`text-xs font-mono ${getWinner(result1.neuralScore, result2.neuralScore) === 'left' ? 'text-emerald-400' : 'text-slate-400'}`}>
                     {(result1.neuralScore * 100).toFixed(0)}%
                     {getWinner(result1.neuralScore, result2.neuralScore) === 'left' && <CheckCircle className="w-3 h-3 inline ml-1" />}
@@ -195,7 +202,7 @@ const ComparisonView: React.FC<ComparisonViewProps> = ({ isOpen, onClose }) => {
                 </div>
                 
                 <div className="comparison-metric">
-                  <span className="text-xs text-slate-500">Neural Score</span>
+                  <span className="text-xs text-slate-500">{result2.scoreSource === 'gnn' ? 'Neural Score' : 'Graph Evidence'}</span>
                   <span className={`text-xs font-mono ${getWinner(result1.neuralScore, result2.neuralScore) === 'right' ? 'text-emerald-400' : 'text-slate-400'}`}>
                     {(result2.neuralScore * 100).toFixed(0)}%
                     {getWinner(result1.neuralScore, result2.neuralScore) === 'right' && <CheckCircle className="w-3 h-3 inline ml-1" />}

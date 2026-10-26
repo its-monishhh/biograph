@@ -7,8 +7,17 @@ from neo4j import GraphDatabase
 load_dotenv()
 
 
+def _clean(value):
+    """Strip whitespace/newlines and wrapping quotes that often sneak in when
+    pasting values into a hosting dashboard."""
+    if value is None:
+        return None
+    value = value.strip().strip('"').strip("'").strip()
+    return value or None
+
+
 def _require(name: str) -> str:
-    value = os.getenv(name)
+    value = _clean(os.getenv(name))
     if not value:
         raise RuntimeError(
             f"Missing required environment variable {name}. "
@@ -20,14 +29,15 @@ def _require(name: str) -> str:
 class Neo4jClient:
     def __init__(self):
         self.driver = None
-        self.database = os.getenv("NEO4J_DATABASE") or None
+        self.database = _clean(os.getenv("NEO4J_DATABASE"))
 
     def connect(self):
         if not self.driver:
             uri = _require("NEO4J_URI")
-            user = os.getenv("NEO4J_USERNAME", "neo4j")
+            user = _clean(os.getenv("NEO4J_USERNAME")) or "neo4j"
             password = _require("NEO4J_PASSWORD")
-            print(f"Connecting to Neo4j at {uri}...")
+            print(f"Connecting to Neo4j at {uri} as user={user!r}, "
+                  f"password_length={len(password)}, database={self.database!r}")
             self.driver = GraphDatabase.driver(
                 uri,
                 auth=(user, password),

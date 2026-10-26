@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { GraphData, NodeType, PredictionResult } from '../types';
 import { api, Disease } from '../services/api';
 import NetworkGraph from './NetworkGraph';
-import { generateKnowledgeSubgraph, analyzeRepurposing } from '../services/groqService';
 import { API_URL } from '../services/config';
 import { Search, BookOpen, Beaker, Heart, Brain, ChevronRight, Loader2, Zap, ArrowRight, GitBranch, Database, Activity, Pill, Dna, CheckCircle2, XCircle, MapPin, Target } from 'lucide-react';
 
@@ -279,15 +278,12 @@ const KnowledgeExplorer: React.FC<KnowledgeExplorerProps> = ({ diseases = [], st
     setCustomPrediction(null);
 
     try {
-      const [graph, prediction] = await Promise.all([
-        generateKnowledgeSubgraph(customSearch),
-        analyzeRepurposing(customSearch, 'drug')
-      ]);
+      const { graph, prediction } = await api.analyze(customSearch, 'auto');
       setCustomGraph(graph);
       setCustomPrediction(prediction);
     } catch (err) {
       console.error(err);
-      setSearchError('Failed to generate. Please try again.');
+      setSearchError(err instanceof Error ? err.message : 'Failed to analyze. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -296,7 +292,7 @@ const KnowledgeExplorer: React.FC<KnowledgeExplorerProps> = ({ diseases = [], st
   const currentGraph = isCustomMode && customGraph ? customGraph : EXAMPLE_GRAPHS[selectedExample]?.graph;
   const currentTitle = isCustomMode ? `${customSearch} Knowledge Graph` : EXAMPLE_GRAPHS[selectedExample]?.title;
   const currentDescription = isCustomMode
-    ? `Simulated knowledge subgraph for "${customSearch}"`
+    ? `Subgraph from the Neo4j knowledge graph for "${customSearch}"`
     : EXAMPLE_GRAPHS[selectedExample]?.description;
 
   const iconMap: Record<string, React.ElementType> = {
