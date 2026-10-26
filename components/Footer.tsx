@@ -96,21 +96,7 @@ const Footer: React.FC<FooterProps> = ({ setCurrentView }) => {
                   <span className="text-cyan-200 font-medium text-sm">Hetionet KG</span>
                   <ExternalLink className="w-3 h-3 text-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
-                <p className="text-[10px] text-cyan-500/70">Massive biomedical knowledge graph</p>
-              </a>
-              <a href="https://pubchem.ncbi.nlm.nih.gov/" target="_blank" rel="noopener noreferrer" className="block p-3 rounded-xl bg-blue-900/10 border border-blue-500/10 hover:bg-blue-900/20 hover:border-blue-500/30 transition-all group">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-blue-200 font-medium text-sm">PubChem</span>
-                  <ExternalLink className="w-3 h-3 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-                <p className="text-[10px] text-blue-500/70">Chemical molecule database</p>
-              </a>
-              <a href="https://www.drugbank.com/" target="_blank" rel="noopener noreferrer" className="block p-3 rounded-xl bg-teal-900/10 border border-teal-500/10 hover:bg-teal-900/20 hover:border-teal-500/30 transition-all group">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-teal-200 font-medium text-sm">DrugBank</span>
-                  <ExternalLink className="w-3 h-3 text-teal-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-                <p className="text-[10px] text-teal-500/70">Comprehensive drug data</p>
+                <p className="text-[10px] text-cyan-500/70">Public biomedical knowledge graph integrating 29 resources</p>
               </a>
             </div>
           </div>
